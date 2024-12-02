@@ -10,16 +10,20 @@ interface ResourceDisplayProps {
 
 export function ResourceDisplay({ resource, name, showEarned = false }: ResourceDisplayProps) {
   return (
-    <div className="flex flex-col items-center bg-white/10 backdrop-blur-sm rounded-lg p-2 min-w-[120px]">
-      <span className="text-lg font-bold text-white">{formatNumber(resource.amount)}</span>
-      <span className="text-xs text-white/80">{name}</span>
+    <div className="fixed top-0 left-1/2 -translate-x-1/2 mt-4 flex flex-col items-center bg-black rounded-lg p-2 min-w-[120px] shadow-lg">
+      <span className="text-lg font-bold text-[#00f3ff] [text-shadow:0_0_7px_#00f3ff,0_0_10px_#00f3ff,0_0_21px_#00f3ff]">
+        {formatNumber(resource.amount)}
+      </span>
+      <span className="text-xs text-[#00f3ff] [text-shadow:0_0_7px_#00f3ff]">
+        {name}
+      </span>
       {resource.perSecond > 0 && (
-        <span className="text-xs text-white/60">
+        <span className="text-xs text-[#00f3ff] [text-shadow:0_0_7px_#00f3ff]">
           {formatNumber(resource.perSecond)}/s
         </span>
       )}
       {showEarned && (
-        <span className="text-xs text-white/60">
+        <span className="text-xs text-[#00f3ff] [text-shadow:0_0_7px_#00f3ff]">
           (Total: {formatNumber(resource.earned)})
         </span>
       )}

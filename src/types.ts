@@ -1,13 +1,34 @@
+export type BuildingId =
+  // Existing buildings
+  | 'box' | 'crate' | 'vault' | 'warehouse' | 'factory' 
+  | 'megaplex' | 'citadel' | 'nexus' | 'dimension' | 'multiverse'
+  | 'quantum' | 'celestial' | 'infinity' | 'eternal' | 'omega'
+  // New buildings
+  | 'starforge' | 'nebula' | 'galaxy' | 'universe' | 'multiverse'
+  | 'timeloop' | 'paradox' | 'reality' | 'existence' | 'omnipotence';
+
+export type ColorVariant = keyof typeof colorVariants;
+
 export interface Building {
-  id: string;
+  id: BuildingId;
   name: string;
-  namePlural: string;
   description: string;
   basePrice: number;
   production: number;
   owned: number;
-  unlockAt: number;
-  color: string;
+  color: ColorVariant;
+  unlockAt?: number; // Production threshold to unlock this building
+  upgrades?: BuildingUpgrade[];
+}
+
+export interface BuildingUpgrade {
+  id: string;
+  name: string;
+  description: string;
+  cost: number;
+  multiplier: number;
+  purchased: boolean;
+  unlockAt: number; // Number of buildings owned to unlock this upgrade
 }
 
 export interface Resource {
@@ -31,9 +52,11 @@ export interface Achievement {
   id: string;
   name: string;
   description: string;
-  icon: string;
-  reward?: {
-    type: 'production' | 'click' | 'golden' | 'hybrid';
-    value: number;
-  };
+}
+
+export interface Stats {
+  totalClicks: number;
+  timePlayed: number;
+  highestShapes: number;
+  totalPrestiges: number;
 }

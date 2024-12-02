@@ -1,7 +1,7 @@
 import React from 'react';
 import { Building as BuildingType } from '../types';
 import { formatNumber } from '../utils';
-import { Box, Package, Warehouse, Factory, Building2, Cpu, Globe2, Boxes, Hexagon, Infinity, Zap, Star, Compass, Gem, Crown } from 'lucide-react';
+import { Box, Package, Warehouse, Factory, Building2, Cpu, Globe2, Boxes, Hexagon, Infinity, Zap, Star, Compass, Gem, Crown, Triangle, Circle, Square, Shield, Heart, Diamond, Octagon, Pentagon, Cloud, Sun } from 'lucide-react';
 
 const icons = {
   box: Box,
@@ -37,6 +37,16 @@ const colorVariants = {
   violet: 'bg-violet-500/55 hover:bg-violet-500/65',
   sky: 'bg-sky-500/55 hover:bg-sky-500/65',
   red: 'bg-red-500/55 hover:bg-red-500/65',
+  slate: 'bg-slate-500/55 hover:bg-slate-500/65',
+  zinc: 'bg-zinc-500/55 hover:bg-zinc-500/65',
+  neutral: 'bg-neutral-500/55 hover:bg-neutral-500/65',
+  stone: 'bg-stone-500/55 hover:bg-stone-500/65',
+  yellow: 'bg-yellow-500/55 hover:bg-yellow-500/65',
+  green: 'bg-green-500/55 hover:bg-green-500/65',
+  gray: 'bg-gray-500/55 hover:bg-gray-500/65',
+  warmGray: 'bg-warmGray-500/55 hover:bg-warmGray-500/65',
+  trueGray: 'bg-trueGray-500/55 hover:bg-trueGray-500/65',
+  coolGray: 'bg-coolGray-500/55 hover:bg-coolGray-500/65',
 };
 
 interface BuildingProps {

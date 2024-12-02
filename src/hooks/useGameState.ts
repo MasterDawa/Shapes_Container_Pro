@@ -21,6 +21,20 @@ export function useGameState() {
     localStorage.setItem('musicEnabled', JSON.stringify(musicEnabled));
   }, [musicEnabled]);
 
+  export interface GameState {
+    shapes: Resource;
+    goldenContainers: Resource;
+    buildings: BuildingType[];
+    upgrades: UpgradeType[];
+    clickPower: number;
+    unlockedAchievements: string[];
+    prestigePoints: number;
+    prestigeMultiplier: number;
+    stats: Stats;
+    lastSaveTime: number;
+    version: string;
+  }
+  
   // Rest of the hook implementation remains the same...
 
   return {

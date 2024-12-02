@@ -327,5 +327,16 @@ export const ACHIEVEMENTS: Achievement[] = [
     description: 'Have 100 Golden Containers at once',
     icon: 'GemIcon',
     reward: { type: 'golden', value: 2 }
+  },
+  {
+    id: 'dedicated',
+    name: 'Dedicated Clicker',
+    description: 'Click 1,000 times'
+  },
+  {
+    id: 'transcended',
+    name: 'Transcended',
+    description: 'Perform your first prestige',
+    icon: 'Sparkles'
   }
 ];

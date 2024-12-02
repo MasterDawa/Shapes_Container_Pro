@@ -1,5 +1,5 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { X, Trophy } from 'lucide-react';
 import { formatNumber } from '../utils';
 
 interface PrestigeModalProps {
@@ -21,25 +21,28 @@ export function PrestigeModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div className="bg-gray-800 rounded-xl max-w-md w-full">
+      <div className="bg-gray-900/95 backdrop-blur-sm rounded-xl max-w-md w-full shadow-lg">
         <div className="p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold text-white">Prestige</h2>
+          <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-2">
+              <Trophy className="w-5 h-5 text-yellow-400" />
+              <h2 className="text-xl font-bold text-white">Prestige</h2>
+            </div>
             <button
               onClick={onClose}
-              className="p-1 hover:bg-white/10 rounded-lg transition-colors"
+              className="text-white/60 hover:text-white/80"
             >
-              <X className="w-6 h-6 text-white" />
+              ×
             </button>
           </div>
           
-          <div className="space-y-4 text-white/90">
-            <p>
+          <div className="space-y-4">
+            <p className="text-white/90">
               Prestige will reset your progress but grant you a permanent production multiplier!
             </p>
             
             <div className="bg-white/10 rounded-lg p-4">
-              <p className="text-sm">Current Multiplier: {formatNumber(currentMultiplier)}x</p>
+              <p className="text-sm text-white/90">Current Multiplier: {formatNumber(currentMultiplier)}x</p>
               <p className="text-sm text-emerald-400">
                 Next Multiplier: {formatNumber(nextMultiplier)}x
               </p>
@@ -48,7 +51,7 @@ export function PrestigeModal({
             <div className="flex justify-end gap-2">
               <button
                 onClick={onClose}
-                className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+                className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors text-white/90"
               >
                 Cancel
               </button>
@@ -65,3 +68,4 @@ export function PrestigeModal({
     </div>
   );
 }
+

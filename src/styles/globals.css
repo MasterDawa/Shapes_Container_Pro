@@ -1,0 +1,31 @@
+/* Remove black header background */
+.header {
+  background: none !important;
+}
+
+/* Center the score */
+.score-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  padding: 1rem;
+}
+
+/* Keep prestige and options buttons positioned */
+.header-buttons {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: flex;
+  gap: 0.5rem;
+  z-index: 10;
+}
+
+/* Position golden counter in bottom right */
+.golden-counter {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  z-index: 10;
+} 
