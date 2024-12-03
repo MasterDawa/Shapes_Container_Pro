@@ -1,18 +1,31 @@
-// Previous imports remain the same...
+import { useState, useEffect } from 'react';
+import { Building, Upgrade, Stats, Resource } from '../types';
+
+export interface GameState {
+  shapes: Resource;
+  goldenContainers: Resource;
+  buildings: Building[];
+  upgrades: Upgrade[];
+  clickPower: number;
+  unlockedAchievements: string[];
+  prestigePoints: number;
+  prestigeMultiplier: number;
+  stats: Stats;
+  lastSaveTime: number;
+  version: string;
+}
 
 export function useGameState() {
-  // Previous state declarations remain the same...
   const [soundEnabled, setSoundEnabled] = useState(() => {
     const saved = localStorage.getItem('soundEnabled');
     return saved ? JSON.parse(saved) : true;
   });
-  
+
   const [musicEnabled, setMusicEnabled] = useState(() => {
     const saved = localStorage.getItem('musicEnabled');
     return saved ? JSON.parse(saved) : true;
   });
 
-  // Save sound preferences
   useEffect(() => {
     localStorage.setItem('soundEnabled', JSON.stringify(soundEnabled));
   }, [soundEnabled]);
@@ -21,24 +34,7 @@ export function useGameState() {
     localStorage.setItem('musicEnabled', JSON.stringify(musicEnabled));
   }, [musicEnabled]);
 
-  export interface GameState {
-    shapes: Resource;
-    goldenContainers: Resource;
-    buildings: BuildingType[];
-    upgrades: UpgradeType[];
-    clickPower: number;
-    unlockedAchievements: string[];
-    prestigePoints: number;
-    prestigeMultiplier: number;
-    stats: Stats;
-    lastSaveTime: number;
-    version: string;
-  }
-  
-  // Rest of the hook implementation remains the same...
-
   return {
-    // Previous returns remain the same...
     soundEnabled,
     setSoundEnabled,
     musicEnabled,

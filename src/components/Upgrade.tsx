@@ -1,46 +1,96 @@
 import React from 'react';
-import { Upgrade as UpgradeType } from '../types';
+import type { Upgrade as UpgradeType } from '../types';
 import { formatNumber } from '../utils';
-import { Zap, Crown, Coins, Sparkles } from 'lucide-react';
+import { Mouse, Zap, Star, Sparkles } from 'lucide-react';
+import { Button } from './Button';
 
-const icons = {
-  click: Zap,
-  production: Coins,
-  golden: Crown,
-  hybrid: Sparkles, // Added hybrid type icon
+const upgradeIcons = {
+  click: Mouse,
+  production: Zap,
+  golden: Star,
+  hybrid: Sparkles
+};
+
+const upgradeColors = {
+  click: 'from-blue-500/20 to-blue-600/20 border-blue-500/50',
+  production: 'from-green-500/20 to-green-600/20 border-green-500/50',
+  golden: 'from-yellow-500/20 to-yellow-600/20 border-yellow-500/50',
+  hybrid: 'from-purple-500/20 to-purple-600/20 border-purple-500/50'
 };
 
 interface UpgradeProps {
   upgrade: UpgradeType;
   canAfford: boolean;
   onClick: () => void;
+  soundEnabled?: boolean;
 }
 
-export function Upgrade({ upgrade, canAfford, onClick }: UpgradeProps) {
-  const Icon = icons[upgrade.type as keyof typeof icons];
-
-  if (upgrade.purchased) return null;
+export function Upgrade({ upgrade, canAfford, onClick, soundEnabled = true }: UpgradeProps) {
+  console.log('Upgrade props:', upgrade);
+  const Icon = upgradeIcons[upgrade.type];
+  const colorClass = upgradeColors[upgrade.type];
+  const progress = (upgrade.currentLevel / upgrade.maxLevel) * 100;
+  const nextMultiplier = upgrade.baseMultiplier * (1 + (upgrade.currentLevel + 1));
+  const isMaxed = upgrade.currentLevel >= upgrade.maxLevel;
 
   return (
-    <button
+    <Button
       onClick={onClick}
-      disabled={!canAfford}
-      className={`w-full p-3 rounded-lg transition-all duration-200 flex items-center gap-3 ${
-        canAfford
-          ? 'bg-emerald-500/45 hover:bg-emerald-500/55 cursor-pointer transform hover:scale-[1.02]'
-          : 'bg-white/35 cursor-not-allowed opacity-50'
-      }`}
+      disabled={!canAfford || upgrade.currentLevel >= upgrade.maxLevel}
+      soundEnabled={soundEnabled}
+      className={`
+        w-full p-4 rounded-xl
+        bg-gradient-to-br ${colorClass}
+        backdrop-blur-sm
+        border border-opacity-20
+        transition-all duration-200
+        relative
+        overflow-hidden
+        ${upgrade.currentLevel >= upgrade.maxLevel 
+          ? 'opacity-50 cursor-not-allowed' 
+          : canAfford
+            ? 'hover:scale-[1.02] cursor-pointer'
+            : 'opacity-75 cursor-not-allowed'
+        }
+      `}
     >
-      <div className="p-2 bg-white/20 rounded-lg">
-        <Icon className="w-4 h-4 text-emerald-400" />
-      </div>
-      <div className="flex-1 text-left">
-        <div className="flex justify-between items-baseline">
-          <h3 className="font-bold text-white text-sm">{upgrade.name}</h3>
-          <span className="text-xs text-white/60">{formatNumber(upgrade.price)}</span>
+      {/* Progress bar */}
+      <div
+        className="absolute inset-0 bg-white/5"
+        style={{ width: `${progress}%` }}
+      />
+
+      <div className="relative flex items-start gap-4">
+        <div className={`p-3 rounded-lg bg-${upgrade.type}-500/20`}>
+          <Icon className="w-6 h-6" />
         </div>
-        <p className="text-xs text-white/80">{upgrade.description}</p>
+
+        <div className="flex-1 text-left">
+          <div className="flex justify-between items-baseline">
+            <h3 className="font-bold text-white">
+              {upgrade.name} ({upgrade.currentLevel}/{upgrade.maxLevel})
+            </h3>
+            <span className="text-sm text-white/80">
+              {isMaxed ? 'MAXED' : `Cost: ${formatNumber(upgrade.currentCost)}`}
+            </span>
+          </div>
+          
+          <p className="text-xs text-white/60 mt-1">
+            {upgrade.description}
+          </p>
+
+          <div className="mt-2 text-xs">
+            <span className="text-white/80">
+              Current: {formatNumber(upgrade.multiplier)}x
+            </span>
+            {!isMaxed && (
+              <span className="text-green-400 ml-2">
+                Next: {formatNumber(nextMultiplier)}x
+              </span>
+            )}
+          </div>
+        </div>
       </div>
-    </button>
+    </Button>
   );
 }

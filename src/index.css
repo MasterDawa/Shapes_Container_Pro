@@ -32,21 +32,94 @@
   animation: slide-in 0.3s ease-out forwards;
 }
 
-/* Background with image and optional overlay */
-.geometric-pattern {
+/* Update the background implementation */
+.background-image {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
   background-image: 
-    linear-gradient(rgba(0,0,0,0.5), rgba(0,0,0,0.5)), /* Optional semi-transparent overlay */
-    url('/src/components/images/background.png');
+    linear-gradient(
+      rgba(0, 0, 0, 0.85), 
+      rgba(0, 0, 0, 0.85)
+    ),
+    url('/Images/background.png');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  background-attachment: fixed; /* Optional: keeps background fixed during scrolling */
+  z-index: 0;
 }
 
-/* Optional: Responsive background adjustments */
-@media (max-width: 768px) {
-  .geometric-pattern {
-    background-size: contain;
-    background-position: top center;
+/* Keep the game container clean */
+.game-container {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  width: 100%;
+}
+
+/* Remove any potential background interference */
+body {
+  margin: 0;
+  padding: 0;
+  background: #111827;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+  position: relative;
+}
+
+@keyframes float-up {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
   }
+  100% {
+    transform: translateY(-50px);
+    opacity: 0;
+  }
+}
+
+.animate-float-up {
+  animation: float-up 1s ease-out forwards;
+}
+
+/* Game UI styles */
+.game-stats {
+  @apply bg-gray-800/80 backdrop-blur-sm rounded-xl p-4 mt-4;
+  @apply flex flex-col items-center gap-2;
+  @apply border border-gray-700/50;
+  @apply shadow-lg;
+  @apply transform transition-all duration-300;
+}
+
+.game-stats:hover {
+  @apply bg-gray-800/90;
+  @apply scale-105;
+}
+
+.stat-label {
+  @apply text-gray-400 text-sm font-medium;
+}
+
+.stat-value {
+  @apply text-blue-300 font-bold text-lg;
+  @apply transition-all duration-300;
+}
+
+/* Add glow effect on hover */
+.stat-value:hover {
+  @apply text-blue-400;
+  text-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+}
+
+/* Floating numbers styling */
+.floating-number {
+  @apply absolute pointer-events-none;
+  @apply text-yellow-400 font-bold text-lg;
+  @apply transition-all duration-300;
+  text-shadow: 0 0 8px rgba(234, 179, 8, 0.5);
 }

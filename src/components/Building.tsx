@@ -1,7 +1,11 @@
 import React from 'react';
 import { Building as BuildingType } from '../types';
 import { formatNumber } from '../utils';
-import { Box, Package, Warehouse, Factory, Building2, Cpu, Globe2, Boxes, Hexagon, Infinity, Zap, Star, Compass, Gem, Crown, Triangle, Circle, Square, Shield, Heart, Diamond, Octagon, Pentagon, Cloud, Sun } from 'lucide-react';
+import { formatDecimal } from '../utils/decimal';
+import { Box, Package, Warehouse, Factory, Building2, Cpu, Globe2, Boxes, Hexagon, Infinity, Zap, Star, Compass, Gem, Crown } from 'lucide-react';
+import Decimal from 'decimal.js';
+import { calculateBuildingProduction, calculateBuildingCost, canPrestigeBuilding, getNextPrestigeRank } from '../constants';
+import { Button } from './Button';
 
 const icons = {
   box: Box,
@@ -53,38 +57,79 @@ interface BuildingProps {
   building: BuildingType;
   canAfford: boolean;
   onClick: () => void;
+  currentShapes: number;
+  soundEnabled?: boolean;
 }
 
-export function Building({ building, canAfford, onClick }: BuildingProps) {
-  const Icon = icons[building.id as keyof typeof icons];
-  const price = Math.floor(building.basePrice * Math.pow(1.15, building.owned));
-  const colorClass = colorVariants[building.color as keyof typeof colorVariants];
+export function Building({ building, canAfford, onClick, currentShapes, soundEnabled = true }: BuildingProps) {
+  const Icon = icons[building.id as keyof typeof icons] || Box;
+  const price = calculateBuildingCost(building);
+  const colorClass = colorVariants[building.color as keyof typeof colorVariants] || colorVariants.blue;
+  const isLocked = building.unlockAt > currentShapes;
+  const canBuy = canAfford && !isLocked;
+  
+  const currentProduction = calculateBuildingProduction(building);
+  const nextLevelProduction = calculateBuildingProduction({
+    ...building,
+    currentLevel: building.currentLevel + 1,
+    owned: (building.owned || 0) + 1
+  });
 
   return (
-    <button
+    <Button
       onClick={onClick}
-      disabled={!canAfford}
-      className={`w-full p-4 rounded-xl transition-all duration-200 flex items-center gap-3 ${
-        canAfford
-          ? `${colorClass} cursor-pointer transform hover:scale-[1.02]`
-          : 'bg-white/35 cursor-not-allowed opacity-50'
-      } backdrop-blur-sm shadow-lg`}
+      disabled={!canBuy}
+      soundEnabled={soundEnabled}
+      className={`
+        w-full p-4 rounded-xl transition-all duration-200 flex items-center gap-3
+        ${isLocked 
+          ? 'bg-gray-800/50 cursor-not-allowed opacity-75'
+          : canBuy
+            ? `${colorClass} cursor-pointer transform hover:scale-[1.02]`
+            : 'bg-white/35 cursor-not-allowed opacity-50'
+        } backdrop-blur-sm shadow-lg
+      `}
     >
-      <div className={`p-2 ${colorClass} rounded-lg`}>
+      <div className={`p-2 ${isLocked ? 'bg-gray-700/50' : colorClass} rounded-lg`}>
         <Icon className="w-5 h-5 text-white" />
       </div>
       <div className="flex-1 text-left">
         <div className="flex justify-between items-baseline">
-          <h3 className="font-bold text-white text-base">
-            {building.name} ({building.owned})
-          </h3>
-          <span className="text-sm text-white/80">{formatNumber(price)}</span>
+          <div>
+            <h3 className="font-bold text-white text-base">
+              {building.name} [{building.prestigeRank}]
+            </h3>
+            <p className="text-xs text-white/60">
+              Level ({building.currentLevel}/{building.maxLevel})
+            </p>
+          </div>
+          <div className="text-right">
+            <span className="text-sm text-white/80">
+              Cost: {formatDecimal(price)}
+            </span>
+            <p className="text-xs text-white/60">
+              Owned: {building.owned}
+            </p>
+          </div>
         </div>
-        <p className="text-xs text-white/90">{building.description}</p>
-        <p className="text-xs text-white/80">
-          Producing {formatNumber(building.production * building.owned)}/s
-        </p>
+        
+        <p className="text-xs text-white/90 mt-1">{building.description}</p>
+        
+        {isLocked ? (
+          <p className="text-xs text-red-400 mt-1">
+            Unlocks at {formatDecimal(new Decimal(building.unlockAt))} shapes
+          </p>
+        ) : (
+          <div className="mt-1">
+            <p className="text-xs text-white/80">
+              Current: {formatDecimal(currentProduction)}/s
+            </p>
+            <p className="text-xs text-green-400">
+              Next Level: {formatDecimal(nextLevelProduction)}/s
+            </p>
+          </div>
+        )}
       </div>
-    </button>
+    </Button>
   );
 }

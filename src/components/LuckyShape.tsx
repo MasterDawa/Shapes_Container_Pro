@@ -1,74 +1,69 @@
-import React, { useState } from 'react';
-import { Sparkles, Gift } from 'lucide-react';
-
-// Utility function for chance (kept from previous implementation)
-const chance = (probability: number) => Math.random() * 100 < probability;
+import React, { useState, useEffect } from 'react';
+import { Star } from 'lucide-react';
+import { chance } from '../utils';
 
 interface LuckyShapeProps {
-  onCollect: (amount: number, isGolden: boolean) => void;
-  hasClover?: boolean;
-  hasDimensionalRifts?: boolean;
+  onCollect: (amount: number, isBonus: boolean, multiplier?: number, duration?: number) => void;
+  hasClover: boolean;
+  hasDimensionalRifts: boolean;
 }
 
-// LuckyShape component remains the same as in the previous implementation
-export function LuckyShape({ onCollect, hasClover = false, hasDimensionalRifts = false }: LuckyShapeProps) {
-  const [position, setPosition] = useState({ left: '0%', top: '0%' });
+interface Position {
+  x: number;
+  y: number;
+}
+
+export function LuckyShape({ onCollect, hasClover, hasDimensionalRifts }: LuckyShapeProps) {
+  const [position, setPosition] = useState<Position | null>(null);
   const [isVisible, setIsVisible] = useState(false);
-  const [isInteractable, setIsInteractable] = useState(false);
+  const [isCollected, setIsCollected] = useState(false);
+  const [spawnTimer, setSpawnTimer] = useState<number>(0);
 
-  // Generate truly random spawn position
-  const generateRandomPosition = React.useCallback(() => {
-    const left = Math.random() * 90;
-    const top = Math.random() * 90;
-    return { left: `${left}%`, top: `${top}%` };
-  }, []);
+  useEffect(() => {
+    const spawnInterval = setInterval(() => {
+      if (!isVisible && !isCollected) {
+        // Increase spawn chance (original rate)
+        const baseChance = 0.09; // 10% base chance per second
+        const bonusChance = hasClover ? 0.1 : 0; // +10% with clover upgrade
+        const totalChance = baseChance + bonusChance;
 
-  // Spawn logic with improved randomness
-  React.useEffect(() => {
-    const spawnShape = () => {
-      if (!isVisible && chance(25)) {
-        const newPosition = generateRandomPosition();
-        setPosition(newPosition);
-        setIsVisible(true);
-        setIsInteractable(false);
-
-        const interactableTimeout = setTimeout(() => {
-          setIsInteractable(true);
-        }, 500);
-
-        const despawnTimeout = setTimeout(() => {
-          setIsVisible(false);
-          setIsInteractable(false);
-        }, 5000);
-
-        return () => {
-          clearTimeout(interactableTimeout);
-          clearTimeout(despawnTimeout);
-        };
+        if (Math.random() < totalChance) {
+          const newPosition = getRandomPosition(hasDimensionalRifts);
+          setPosition(newPosition);
+          setIsVisible(true);
+          setSpawnTimer(0);
+        }
+      } else if (isVisible) {
+        setSpawnTimer(prev => {
+          if (prev >= 5) { // Disappear after 5 seconds
+            setIsVisible(false);
+            setIsCollected(false);
+            return 0;
+          }
+          return prev + 1;
+        });
       }
-    };
+    }, 1000); // Check every second
 
-    const interval = setInterval(spawnShape, Math.random() * 3000 + 2000);
-    return () => clearInterval(interval);
-  }, [isVisible, generateRandomPosition]);
+    return () => clearInterval(spawnInterval);
+  }, [isVisible, isCollected, hasClover, hasDimensionalRifts]);
 
-  // Click handler with improved reward logic
   const handleClick = () => {
-    if (!isInteractable) return;
+    // Determine reward type
+    const isMultiplierBonus = Math.random() < 0.3; // 30% chance for multiplier bonus
 
-    const boost = hasClover ? 4 : 1;
-    
-    if (chance(30)) {
-      const baseAmount = Math.max(10, Math.random() * 250);
-      const amount = Math.floor(baseAmount * boost);
-      onCollect(amount, false);
+    if (isMultiplierBonus) {
+      // Random multiplier (x5, x10, or x15) for 10 seconds
+      const multipliers = [5, 10, 15];
+      const multiplier = multipliers[Math.floor(Math.random() * multipliers.length)];
+      onCollect(0, true, multiplier, 10);
     } else {
-      const amount = Math.floor(5 * boost);
-      onCollect(amount, true);
+      // Random shapes between 1 and 10000
+      const amount = Math.floor(Math.random() * 100) + 1;
+      onCollect(amount, false);
     }
-    
+
     setIsVisible(false);
-    setIsInteractable(false);
   };
 
   if (!isVisible) return null;
@@ -76,99 +71,34 @@ export function LuckyShape({ onCollect, hasClover = false, hasDimensionalRifts =
   return (
     <button
       onClick={handleClick}
+      className="fixed z-40 animate-sparkle"
       style={{
-        position: 'fixed',
-        left: position.left,
-        top: position.top,
-        zIndex: 50,
-        cursor: isInteractable ? 'pointer' : 'default',
+        left: position!.x,
+        top: position!.y,
+        transform: hasDimensionalRifts ? `rotate(${Math.random() * 360}deg)` : undefined
       }}
-      className={`
-        absolute 
-        p-4 
-        bg-yellow-500/30 
-        hover:bg-yellow-500/50 
-        rounded-full 
-        backdrop-blur-sm 
-        transition-all 
-        duration-300 
-        ${isInteractable ? 'scale-100 opacity-100' : 'scale-90 opacity-70'}
-      `}
-      disabled={!isInteractable}
     >
-      <Sparkles 
-        className={`
-          w-8 h-8 
-          text-yellow-400 
-          animate-pulse 
-          ${isInteractable ? 'text-yellow-500' : 'text-yellow-300'}
-        `} 
-      />
+      <Star className="w-8 h-8 text-yellow-400 drop-shadow-glow" />
     </button>
   );
 }
 
-// Updated GameComponent with reward tracking and display
-export function GameComponent() {
-  const [totalRewards, setTotalRewards] = useState(0);
-  const [goldenRewards, setGoldenRewards] = useState(0);
-  const [rewardHistory, setRewardHistory] = useState<{amount: number, isGolden: boolean}[]>([]);
+function getRandomPosition(allowFullScreen: boolean = false): Position {
+  const padding = 100; // Keep shapes away from edges
+  const maxWidth = window.innerWidth - padding * 2;
+  const maxHeight = window.innerHeight - padding * 2;
 
-  const handleCollect = (amount: number, isGolden: boolean) => {
-    // Update total rewards
-    setTotalRewards(prev => prev + amount);
-
-    // Track golden rewards
-    if (isGolden) {
-      setGoldenRewards(prev => prev + 1);
-    }
-
-    // Keep track of reward history (last 5 rewards)
-    setRewardHistory(prev => {
-      const updated = [...prev, { amount, isGolden }];
-      return updated.slice(-5); // Keep only the last 5 rewards
-    });
-
-    // Optional console log for debugging
-    console.log(`Collected ${amount} ${isGolden ? 'golden' : 'normal'} reward!`);
-  };
-
-  return (
-    <div className="relative h-screen w-screen overflow-hidden p-4 bg-gray-100">
-      {/* Rewards Dashboard */}
-      <div className="absolute top-4 right-4 bg-white shadow-lg rounded-lg p-4 z-50">
-        <div className="flex items-center mb-2">
-          <Gift className="mr-2 text-green-500" />
-          <h2 className="text-xl font-bold">Rewards Dashboard</h2>
-        </div>
-        <div className="space-y-2">
-          <p>Total Rewards: <span className="font-semibold">{totalRewards}</span></p>
-          <p>Golden Rewards: <span className="font-semibold text-yellow-500">{goldenRewards}</span></p>
-        </div>
-        <div className="mt-4">
-          <h3 className="text-md font-semibold mb-2">Recent Rewards:</h3>
-          <ul>
-            {rewardHistory.map((reward, index) => (
-              <li 
-                key={index} 
-                className={`
-                  ${reward.isGolden ? 'text-yellow-600' : 'text-gray-700'}
-                  ${reward.isGolden ? 'font-bold' : ''}
-                `}
-              >
-                {reward.amount} {reward.isGolden ? '(Golden!)' : ''}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      {/* Lucky Shape spawner with clover bonus */}
-      <LuckyShape 
-        onCollect={handleCollect} 
-        hasClover={true} 
-        hasDimensionalRifts={false} 
-      />
-    </div>
-  );
+  if (allowFullScreen) {
+    // Can spawn anywhere on screen
+    return {
+      x: padding + Math.random() * maxWidth,
+      y: padding + Math.random() * maxHeight
+    };
+  } else {
+    // Original spawn logic (right side only)
+    return {
+      x: window.innerWidth - padding - Math.random() * (maxWidth / 3),
+      y: padding + Math.random() * maxHeight
+    };
+  }
 }

@@ -9,22 +9,31 @@ interface ResourceDisplayProps {
 }
 
 export function ResourceDisplay({ resource, name, showEarned = false }: ResourceDisplayProps) {
+  const formatSafely = (value: number) => {
+    try {
+      return formatNumber(value);
+    } catch (e) {
+      console.error('Error formatting resource value:', value, e);
+      return 'Error';
+    }
+  };
+
   return (
-    <div className="fixed top-0 left-1/2 -translate-x-1/2 mt-4 flex flex-col items-center bg-black rounded-lg p-2 min-w-[120px] shadow-lg">
-      <span className="text-lg font-bold text-[#00f3ff] [text-shadow:0_0_7px_#00f3ff,0_0_10px_#00f3ff,0_0_21px_#00f3ff]">
-        {formatNumber(resource.amount)}
+    <div className="fixed top-0 left-1/2 -translate-x-1/2 mt-8 flex flex-col items-center bg-black/80 backdrop-blur-sm rounded-xl p-4 min-w-[240px] shadow-lg border border-blue-500/20">
+      <span className="text-3xl font-bold text-[#00f3ff] [text-shadow:0_0_7px_#00f3ff,0_0_10px_#00f3ff,0_0_21px_#00f3ff]">
+        {formatSafely(resource.amount)}
       </span>
-      <span className="text-xs text-[#00f3ff] [text-shadow:0_0_7px_#00f3ff]">
+      <span className="text-lg text-[#00f3ff] [text-shadow:0_0_7px_#00f3ff] mt-1">
         {name}
       </span>
       {resource.perSecond > 0 && (
-        <span className="text-xs text-[#00f3ff] [text-shadow:0_0_7px_#00f3ff]">
-          {formatNumber(resource.perSecond)}/s
+        <span className="text-sm text-[#00f3ff] [text-shadow:0_0_7px_#00f3ff] mt-1">
+          {formatSafely(resource.perSecond)}/s
         </span>
       )}
       {showEarned && (
-        <span className="text-xs text-[#00f3ff] [text-shadow:0_0_7px_#00f3ff]">
-          (Total: {formatNumber(resource.earned)})
+        <span className="text-sm text-[#00f3ff] [text-shadow:0_0_7px_#00f3ff] opacity-75 mt-1">
+          (Total: {formatSafely(resource.earned)})
         </span>
       )}
     </div>

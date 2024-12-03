@@ -10,9 +10,17 @@ import { AchievementsPanel } from './components/AchievementsPanel';
 import { OptionsModal } from './components/OptionsModal';
 import { AchievementPopup } from './components/AchievementPopup';
 import { useAudio } from './services/AudioService';
-import { BUILDINGS, UPGRADES, ACHIEVEMENTS } from './constants';
-import { Building as BuildingType, Resource, Upgrade as UpgradeType, Achievement } from './types';
+import { BUILDINGS, UPGRADES, ACHIEVEMENTS, calculateBuildingProduction, calculateUnlockCost, calculateUpgradeCost, calculateBuildingCost, calculateUpgradeMultiplier } from './constants';
 import { formatNumber, chance } from './utils';
+import { PrestigeModal } from './components/PrestigeModal';
+import { MainMenu } from './components/MainMenu';
+import { SavesList } from './components/SavesList';
+import backgroundImage from '@/assets/background.png';
+import { ShapeButton } from './components/ShapeButton';
+import Decimal from 'decimal.js';
+import { formatDecimal } from './utils/decimal';
+import { GameCore } from './components/GameCore';
+import { Resource, Building as BuildingType, Upgrade as UpgradeType, Achievement, HighScore, GameSave } from './types';
 
 const GAME_VERSION = "1.0.0";
 
@@ -24,12 +32,60 @@ const PRESTIGE_REQUIREMENTS = {
   5: 1e18   // 1 quintillion
 };
 
+// Add this helper function
+const safeLocalStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return localStorage.getItem(key);
+    } catch (error) {
+      console.error('Error accessing localStorage:', error);
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      localStorage.setItem(key, value);
+    } catch (error) {
+      console.error('Error setting localStorage:', error);
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      localStorage.removeItem(key);
+    } catch (error) {
+      console.error('Error removing from localStorage:', error);
+    }
+  }
+};
+
 function App() {
   // Game state
-  const [shapes, setShapes] = useState<Resource>({ amount: 0, earned: 0, perSecond: 0 });
-  const [goldenContainers, setGoldenContainers] = useState<Resource>({ amount: 0, earned: 0, perSecond: 0 });
-  const [buildings, setBuildings] = useState<BuildingType[]>(BUILDINGS);
-  const [upgrades, setUpgrades] = useState<UpgradeType[]>(UPGRADES);
+  const [shapes, setShapes] = useState<Resource>({
+    amount: new Decimal(0),
+    earned: new Decimal(0),
+    perSecond: new Decimal(0)
+  });
+  const [buildings, setBuildings] = useState<BuildingType[]>(() => 
+    BUILDINGS.map(building => ({
+      ...building,
+      currentLevel: 0,
+      maxLevel: 100,
+      prestigeLevel: 0,
+      production: building.baseProduction || 0,
+      owned: 0,
+      baseUnlockAt: building.baseUnlockAt || 0,
+      unlockAt: building.unlockAt || 0
+    }))
+  );
+  const [upgrades, setUpgrades] = useState<UpgradeType[]>(() => 
+    UPGRADES.map(upgrade => ({
+      ...upgrade,
+      currentLevel: 0,
+      maxLevel: 50,
+      purchased: false,
+      multiplier: upgrade.baseMultiplier
+    }))
+  );
   const [clickPower, setClickPower] = useState(1);
   const [isShapePressed, setIsShapePressed] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -49,24 +105,27 @@ function App() {
     timePlayed: 0,
     highestShapes: 0,
     totalPrestiges: 0,
-    goldenContainers: 0
+    luckyShapesClicked: 0
   });
 
   const { playClickSound } = useAudio(soundEnabled, musicEnabled);
 
   // Calculate total production per second with prestige multiplier
   useEffect(() => {
-    const baseProduction = buildings.reduce((total, building) => {
-      return total + building.production * building.owned;
-    }, 0);
+    const totalProduction = buildings.reduce((total, building) => {
+      const buildingProduction = calculateBuildingProduction(building);
+      return total.plus(buildingProduction);
+    }, new Decimal(0));
 
+    // Apply upgrades and prestige multiplier
     const productionMultiplier = upgrades
-      .filter(u => u.purchased && (u.type === 'production' || u.type === 'hybrid'))
+      .filter(u => u.purchased || u.currentLevel > 0)  // Check both conditions
+      .filter(u => u.type === 'production' || u.type === 'hybrid')
       .reduce((total, upgrade) => total * upgrade.multiplier, 1) * prestigeMultiplier;
 
     setShapes(prev => ({
       ...prev,
-      perSecond: baseProduction * productionMultiplier
+      perSecond: totalProduction.times(productionMultiplier)
     }));
   }, [buildings, upgrades, prestigeMultiplier]);
 
@@ -82,8 +141,8 @@ function App() {
       
       setShapes(prev => ({
         ...prev,
-        amount: prev.amount + prev.perSecond * delta,
-        earned: prev.earned + prev.perSecond * delta
+        amount: prev.amount.plus(prev.perSecond.times(delta)),
+        earned: prev.earned.plus(prev.perSecond.times(delta))
       }));
 
       // Update time played
@@ -104,9 +163,11 @@ function App() {
     const saveInterval = setInterval(() => {
       const gameState = {
         shapes,
-        goldenContainers,
         buildings,
-        upgrades,
+        upgrades: upgrades.map(u => ({
+          ...u,
+          maxLevel: 50  // Ensure maxLevel is preserved when saving
+        })),
         clickPower,
         unlockedAchievements: Array.from(unlockedAchievements),
         prestigePoints,
@@ -119,56 +180,81 @@ function App() {
     }, 300);
 
     return () => clearInterval(saveInterval);
-  }, [shapes, goldenContainers, buildings, upgrades, clickPower, unlockedAchievements, prestigePoints, prestigeMultiplier, stats]);
+  }, [shapes, buildings, upgrades, clickPower, unlockedAchievements, prestigePoints, prestigeMultiplier, stats]);
 
   // Load game state with offline progress
   useEffect(() => {
-    const savedState = localStorage.getItem('gameState');
-    if (savedState) {
-      const parsed = JSON.parse(savedState);
-      
-      // Version check
-      if (parsed.version !== GAME_VERSION) {
-        setToast("Game updated! Some features may have changed.");
-      }
+    const isClient = typeof window !== 'undefined';
 
-      // Load saved state
-      setShapes(parsed.shapes);
-      setGoldenContainers(parsed.goldenContainers);
-      setBuildings(parsed.buildings);
-      setUpgrades(parsed.upgrades);
-      setClickPower(parsed.clickPower);
-      setUnlockedAchievements(new Set(parsed.unlockedAchievements));
-      setPrestigePoints(parsed.prestigePoints || 0);
-      setPrestigeMultiplier(parsed.prestigeMultiplier || 1);
-      setStats(parsed.stats || {
-        totalClicks: 0,
-        timePlayed: 0,
-        highestShapes: 0,
-        totalPrestiges: 0,
-        goldenContainers: 0
-      });
+    if (isClient) {
+      const savedState = localStorage.getItem('gameState');
+      if (savedState) {
+        const parsed = JSON.parse(savedState);
+        
+        // Version check
+        if (parsed.version !== GAME_VERSION) {
+          setToast("Game updated! Some features may have changed.");
+        }
 
-      // Calculate offline progress
-      const timeDiff = (Date.now() - parsed.lastSaveTime) / 1000;
-      if (timeDiff > 0) {
-        const offlineProgress = parsed.shapes.perSecond * timeDiff;
-        setShapes(prev => ({
-          ...prev,
-          amount: prev.amount + offlineProgress,
-          earned: prev.earned + offlineProgress
-        }));
-        setToast(`Welcome back! Earned ${formatNumber(offlineProgress)} shapes while away`);
+        // Load saved state
+        setShapes({
+          amount: new Decimal(parsed.shapes.amount),
+          earned: new Decimal(parsed.shapes.earned),
+          perSecond: new Decimal(parsed.shapes.perSecond)
+        });
+        setBuildings(parsed.buildings);
+        
+        // Ensure upgrades have correct maxLevel when loading
+        setUpgrades(parsed.upgrades.map((u: UpgradeType) => ({
+          ...u,
+          maxLevel: 50,  // Force maxLevel to 50
+          currentLevel: Math.min(u.currentLevel, 50)  // Ensure currentLevel doesn't exceed maxLevel
+        })));
+
+        setClickPower(parsed.clickPower);
+        setUnlockedAchievements(new Set(parsed.unlockedAchievements));
+        setPrestigePoints(parsed.prestigePoints || 0);
+        setPrestigeMultiplier(parsed.prestigeMultiplier || 1);
+        setStats(parsed.stats || {
+          totalClicks: 0,
+          timePlayed: 0,
+          highestShapes: 0,
+          totalPrestiges: 0,
+          luckyShapesClicked: 0
+        });
+
+        // Calculate offline progress
+        const timeDiff = (Date.now() - parsed.lastSaveTime) / 1000;
+        if (timeDiff > 0) {
+          const offlineProgress = new Decimal(parsed.shapes.perSecond).times(timeDiff);
+          setShapes(prev => ({
+            ...prev,
+            amount: prev.amount.plus(offlineProgress),
+            earned: prev.earned.plus(offlineProgress)
+          }));
+          setToast(`Welcome back! Earned ${formatNumber(offlineProgress)} shapes while away`);
+        }
       }
     }
   }, []);
 
   // Achievement checker
   useEffect(() => {
-    if (shapes.earned >= 1e6) checkAchievement('millionaire');
-    if (stats.totalClicks >= 1000) checkAchievement('dedicated');
-    if (prestigePoints >= 1) checkAchievement('transcended');
-  }, [shapes.earned, stats.totalClicks, prestigePoints]);
+    const gameState = {
+      shapes,
+      buildings,
+      upgrades,
+      stats,
+      prestigePoints,
+      prestigeMultiplier
+    };
+
+    ACHIEVEMENTS.forEach(achievement => {
+      if (!unlockedAchievements.has(achievement.id) && achievement.condition(gameState)) {
+        checkAchievement(achievement.id);
+      }
+    });
+  }, [shapes, buildings, upgrades, stats, prestigePoints, prestigeMultiplier]);
 
   // Game handlers
   const handleShapeClick = useCallback(() => {
@@ -184,18 +270,23 @@ function App() {
       ? buildings.reduce((total, building) => total + building.owned * 0.01, 1)
       : 1;
 
-    const totalClickPower = clickPower * clickMultiplier * buildingBonus;
+    const totalClickPower = new Decimal(clickPower)
+      .times(clickMultiplier)
+      .times(buildingBonus);
 
     setShapes(prev => ({
       ...prev,
-      amount: prev.amount + totalClickPower,
-      earned: prev.earned + totalClickPower
+      amount: prev.amount.plus(totalClickPower),
+      earned: prev.earned.plus(totalClickPower)
     }));
 
     setStats(prev => ({
       ...prev,
       totalClicks: prev.totalClicks + 1,
-      highestShapes: Math.max(prev.highestShapes, shapes.amount + totalClickPower)
+      highestShapes: Decimal.max(
+        new Decimal(prev.highestShapes),
+        shapes.amount.plus(totalClickPower)
+      ).toNumber()
     }));
 
     if (upgrades.find(u => u.id === 'golden1')?.purchased && chance(1)) {
@@ -204,95 +295,202 @@ function App() {
   }, [clickPower, upgrades, buildings, playClickSound, shapes.amount, prestigeMultiplier]);
 
   const handleBuyBuilding = useCallback((building: BuildingType) => {
-    const price = building.basePrice * Math.pow(1.15, building.owned);
+    const price = calculateBuildingCost(building);
     
-    if (shapes.amount >= price) {
+    if (shapes.amount.gte(price) && building.currentLevel < building.maxLevel) {
+      // Deduct the cost
       setShapes(prev => ({
         ...prev,
-        amount: prev.amount - price
+        amount: prev.amount.minus(price)
       }));
 
+      // Update the building
       setBuildings(prev =>
         prev.map(b =>
           b.id === building.id
-            ? { ...b, owned: b.owned + 1 }
+            ? {
+                ...b,
+                currentLevel: b.currentLevel + 1,
+                owned: (b.owned || 0) + 1,  // Make sure owned is initialized
+                production: calculateBuildingProduction({
+                  ...b,
+                  currentLevel: b.currentLevel + 1,
+                  owned: (b.owned || 0) + 1
+                }).toNumber()
+              }
             : b
         )
       );
+
+      // Play sound effect
+      playClickSound();
     }
-  }, [shapes]);
+  }, [shapes.amount, playClickSound]);
 
   const handleBuyUpgrade = useCallback((upgrade: UpgradeType) => {
-    if (shapes.amount >= upgrade.price && !upgrade.purchased) {
+    const cost = upgrade.currentCost;
+    
+    if (shapes.amount.gte(cost) && upgrade.currentLevel < upgrade.maxLevel) {
       setShapes(prev => ({
         ...prev,
-        amount: prev.amount - upgrade.price
+        amount: prev.amount.minus(cost)
       }));
 
       setUpgrades(prev =>
         prev.map(u =>
           u.id === upgrade.id
-            ? { ...u, purchased: true }
+            ? {
+                ...u,
+                currentLevel: u.currentLevel + 1,
+                currentCost: calculateUpgradeCost({
+                  ...u,
+                  currentLevel: u.currentLevel + 1
+                }),
+                multiplier: calculateUpgradeMultiplier({
+                  ...u,
+                  currentLevel: u.currentLevel + 1
+                })
+              }
             : u
         )
       );
 
-      setToast(`Upgrade purchased: ${upgrade.name}`);
+      playClickSound();
     }
-  }, [shapes]);
+  }, [shapes.amount, playClickSound]);
 
   const handlePrestige = () => {
-    // Calculate total production value needed for prestige
-    const prestigeRequirement = PRESTIGE_REQUIREMENTS[prestigeLevel + 1] || Infinity;
-    
-    if (totalProduction >= prestigeRequirement) {
-      setPrestigeLevel(prev => prev + 1);
-      setGlobalMultiplier(prev => prev * PRESTIGE_MULTIPLIERS[`tier${prestigeLevel + 1}`]);
-      
-      // Reset buildings but keep multipliers
-      setBuildings(prevBuildings => 
-        prevBuildings.map(building => ({
-          ...building,
-          owned: 0
-        }))
-      );
-      
-      // Reset total production
-      setTotalProduction(0);
-      setScore(0);
+    if (shapes.earned.gte(1e12)) { // 1 trillion shapes required
+      setShowPrestigeModal(true);
     }
   };
 
-  const handleCollectLuckyShape = useCallback((amount: number, isGolden: boolean) => {
-    if (isGolden) {
-      setGoldenContainers(prev => ({
-        ...prev,
-        amount: prev.amount + amount,
-        earned: prev.earned + amount
-      }));
-      setStats(prev => ({
-        ...prev,
-        goldenContainers: prev.goldenContainers + amount
-      }));
-      setToast(`Found ${amount} golden container${amount > 1 ? 's' : ''}!`);
+  const handleConfirmPrestige = () => {
+    const prestigePoints = Math.floor(Math.log10(shapes.earned.div(1e12).toNumber()));
+
+    setBuildings(prevBuildings => 
+      prevBuildings.map(building => ({
+        ...building,
+        currentLevel: 0,
+        prestigeLevel: building.prestigeLevel + 1,
+        unlockAt: calculateUnlockCost({
+          ...building,
+          prestigeLevel: building.prestigeLevel + 1
+        }),
+        production: calculateBuildingProduction({
+          ...building,
+          currentLevel: 0,
+          prestigeLevel: building.prestigeLevel + 1
+        })
+      }))
+    );
+    
+    setUpgrades(prevUpgrades =>
+      prevUpgrades.map(upgrade => ({
+        ...upgrade,
+        currentLevel: 0,
+        currentCost: upgrade.baseCost,
+        purchased: false
+      }))
+    );
+    
+    // Reset shapes but keep prestige stats
+    setShapes({
+      amount: new Decimal(0),
+      earned: new Decimal(0),
+      perSecond: new Decimal(0)
+    });
+    
+    setPrestigePoints(prev => prev + prestigePoints);
+    setPrestigeMultiplier(prev => prev * (1 + prestigePoints * 0.1));
+  };
+
+  const [activeMultiplier, setActiveMultiplier] = useState<{value: number, endTime: number} | null>(null);
+
+  // Add this effect to handle temporary multipliers
+  useEffect(() => {
+    if (activeMultiplier && Date.now() >= activeMultiplier.endTime) {
+      setActiveMultiplier(null);
+    }
+
+    const interval = setInterval(() => {
+      if (activeMultiplier && Date.now() >= activeMultiplier.endTime) {
+        setActiveMultiplier(null);
+        setToast('Click power multiplier expired!');
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [activeMultiplier]);
+
+  const handleCollectLuckyShape = useCallback((amount: number, isBonus: boolean, multiplier?: number, duration?: number) => {
+    // Increment lucky shapes clicked counter
+    setStats(prev => ({
+      ...prev,
+      luckyShapesClicked: prev.luckyShapesClicked + 1
+    }));
+
+    if (isBonus && multiplier && duration) {
+      // Handle temporary click multiplier
+      setActiveMultiplier({
+        value: multiplier,
+        endTime: Date.now() + duration * 1000
+      });
+      setToast(`Lucky shape grants ${multiplier}x click power for ${duration} seconds!`);
     } else {
+      // Handle shape reward
       const bonus = amount * prestigeMultiplier;
       setShapes(prev => ({
         ...prev,
-        amount: prev.amount + bonus,
-        earned: prev.earned + bonus
+        amount: prev.amount.plus(bonus),
+        earned: prev.earned.plus(bonus)
       }));
       setToast(`Lucky shape grants ${formatNumber(bonus)} shapes!`);
     }
   }, [prestigeMultiplier]);
 
+  // Update click power calculation to include temporary multiplier
+  const calculateClickPower = useCallback(() => {
+    let power = clickPower * prestigeMultiplier;
+    
+    if (activeMultiplier) {
+      power *= activeMultiplier.value;
+    }
+    
+    return power;
+  }, [clickPower, prestigeMultiplier, activeMultiplier]);
+
+  const [achievementQueue, setAchievementQueue] = useState<Achievement[]>([]);
+
   const checkAchievement = useCallback((id: string) => {
     if (!unlockedAchievements.has(id)) {
       const achievement = ACHIEVEMENTS.find(a => a.id === id);
-      if (achievement) {
+      if (achievement && achievement.reward) {
         setUnlockedAchievements(prev => new Set([...prev, id]));
-        setCurrentAchievement(achievement);
-        setToast(`Achievement unlocked: ${achievement.name}`);
+        setAchievementQueue(prev => [...prev, achievement]);
+        
+        // Apply achievement reward
+        switch (achievement.reward.type) {
+          case 'production':
+            setPrestigeMultiplier(prev => prev * achievement.reward!.value);
+            break;
+          case 'click':
+            setClickPower(prev => prev * achievement.reward!.value);
+            break;
+          case 'golden':
+            // Add golden container bonus logic
+            break;
+          case 'hybrid':
+            setPrestigeMultiplier(prev => prev * achievement.reward!.value);
+            setClickPower(prev => prev * achievement.reward!.value);
+            break;
+        }
+
+        // Save achievement timestamp
+        const timestamp = Date.now();
+        localStorage.setItem(`achievement_${id}`, timestamp.toString());
+        
+        setToast(`Achievement unlocked: ${achievement.name}!`);
       }
     }
   }, [unlockedAchievements]);
@@ -307,17 +505,6 @@ function App() {
   // Add state for prestige level and multipliers
   const [prestigeLevel, setPrestigeLevel] = useState(0);
   const [globalMultiplier, setGlobalMultiplier] = useState(1);
-
-  // Function to check if building should be unlocked
-  const isBuildingUnlocked = (building: Building) => {
-    if (!building.unlockAt) return true;
-    return totalProduction >= building.unlockAt;
-  };
-
-  // Function to check if upgrade is available
-  const isUpgradeUnlocked = (building: Building, upgrade: BuildingUpgrade) => {
-    return building.owned >= upgrade.unlockAt;
-  };
 
   // Update click power calculation
   useEffect(() => {
@@ -371,155 +558,428 @@ function App() {
     };
   }, [autoClickerActive, handleShapeClick]);
 
+  // Add state for prestige modal
+  const [showPrestigeModal, setShowPrestigeModal] = useState(false);
+
+  // Add state for main menu
+  const [showMainMenu, setShowMainMenu] = useState(true);
+  const [highScores, setHighScores] = useState<HighScore[]>(() => {
+    const saved = localStorage.getItem('highScores');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // Add autosave effect
+  useEffect(() => {
+    const saveInterval = setInterval(() => {
+      const gameState = {
+        shapes,
+        buildings,
+        upgrades,
+        clickPower,
+        unlockedAchievements: Array.from(unlockedAchievements),
+        prestigePoints,
+        prestigeMultiplier,
+        stats,
+        lastSaveTime: Date.now(),
+        version: GAME_VERSION
+      };
+      localStorage.setItem('gameState', JSON.stringify(gameState));
+      console.log('Game autosaved');
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(saveInterval);
+  }, [shapes, buildings, upgrades, clickPower, unlockedAchievements, prestigePoints, prestigeMultiplier, stats]);
+
+  // Add handlers for main menu
+  const handleNewGame = useCallback(() => {
+    // Reset all state to initial values
+    setShapes({
+      amount: new Decimal(0),
+      earned: new Decimal(0),
+      perSecond: new Decimal(0)
+    });
+    
+    setBuildings(BUILDINGS.map(building => ({
+      ...building,
+      currentLevel: 0,
+      maxLevel: 100,
+      prestigeLevel: 0,
+      prestigeRank: 'A',
+      production: building.baseProduction || 0,
+      owned: 0,
+      baseUnlockAt: building.baseUnlockAt || 0,
+      unlockAt: building.unlockAt || 0
+    })));
+    
+    setUpgrades(UPGRADES.map(upgrade => ({
+      ...upgrade,
+      purchased: false,
+      currentLevel: 0,
+      maxLevel: 1,
+      currentCost: upgrade.price,
+      baseCost: upgrade.price
+    })));
+    
+    setClickPower(1);
+    setPrestigePoints(0);
+    setPrestigeMultiplier(1);
+    
+    setStats({
+      totalClicks: 0,
+      timePlayed: 0,
+      highestShapes: 0,
+      totalPrestiges: 0,
+      luckyShapesClicked: 0
+    });
+    
+    setUnlockedAchievements(new Set());
+    setCurrentAchievement(null);
+    
+    // Save current game as high score if it qualifies
+    if (shapes.earned.gt(0)) {
+      const newHighScore: HighScore = {
+        date: new Date().toISOString(),
+        shapes: shapes.earned.toNumber(),
+        prestigePoints: prestigePoints,
+        timePlayed: stats.timePlayed
+      };
+      
+      setHighScores(prev => {
+        const newScores = [...prev, newHighScore]
+          .sort((a, b) => b.shapes - a.shapes)
+          .slice(0, 10); // Keep top 10
+        localStorage.setItem('highScores', JSON.stringify(newScores));
+        return newScores;
+      });
+    }
+    
+    // Clear game save
+    localStorage.removeItem('gameState');
+    
+    // Close menu and show toast
+    setShowMainMenu(false);
+    setToast('New game started!');
+  }, [shapes.earned, prestigePoints, stats.timePlayed]);
+
+  const handleLoadGame = () => {
+    try {
+      const savedState = localStorage.getItem('gameState');
+      if (savedState) {
+        const parsed = JSON.parse(savedState);
+        setShapes({
+          amount: new Decimal(parsed.shapes.amount),
+          earned: new Decimal(parsed.shapes.earned),
+          perSecond: new Decimal(parsed.shapes.perSecond)
+        });
+        setBuildings(parsed.buildings || []);
+        setUpgrades(parsed.upgrades || []);
+      }
+    } catch (error) {
+      console.error('Error loading game:', error);
+    }
+    setShowMainMenu(false);
+  };
+
+  const saveHighScore = () => {
+    const newScore = {
+      date: new Date().toISOString(),
+      shapes: shapes.earned.toNumber(),
+      prestigePoints,
+      timePlayed: stats.timePlayed
+    };
+
+    setHighScores(prev => {
+      const newScores = [...prev, newScore]
+        .sort((a, b) => b.shapes - a.shapes)
+        .slice(0, 10); // Keep top 10 scores
+      localStorage.setItem('highScores', JSON.stringify(newScores));
+      return newScores;
+    });
+  };
+
+  // Add new handlers
+  const handleSaveGame = () => {
+    const gameState = {
+      shapes,
+      buildings,
+      upgrades,
+      clickPower,
+      unlockedAchievements: Array.from(unlockedAchievements),
+      prestigePoints,
+      prestigeMultiplier,
+      stats,
+      version: GAME_VERSION
+    };
+    const timestamp = Date.now();
+    localStorage.setItem(`gameState_${timestamp}`, JSON.stringify(gameState));
+    setToast('Game saved successfully!');
+  };
+
+  const handleExitToMenu = () => {
+    handleSaveGame(); // Auto-save before exiting
+    setShowOptions(false);
+    setShowMainMenu(true);
+  };
+
+  // Add these handlers
+  const handleLoadSave = (save: GameSave) => {
+    setShapes({
+      amount: new Decimal(save.shapes.amount),
+      earned: new Decimal(save.shapes.earned),
+      perSecond: new Decimal(save.shapes.perSecond)
+    });
+    setBuildings(save.buildings);
+    setUpgrades(save.upgrades);
+    setPrestigePoints(save.prestigePoints);
+    setPrestigeMultiplier(save.prestigeMultiplier || 1);
+    setStats(save.stats);
+    setShowMainMenu(false);
+  };
+
+  const handleDeleteSave = (timestamp: number) => {
+    if (window.confirm('Are you sure you want to delete this save?')) {
+      localStorage.removeItem(`gameState_${timestamp}`);
+      setToast('Save deleted successfully');
+    }
+  };
+
+  // Add this near the top of your App component
+  const isClient = typeof window !== 'undefined';
+
+  // When accessing localStorage
+  useEffect(() => {
+    if (!isClient) return;
+
+    const loadGame = async () => {
+      try {
+        const savedState = safeLocalStorage.getItem('gameState');
+        if (savedState) {
+          const parsed = JSON.parse(savedState);
+          // Load saved state
+          setShapes({
+            amount: new Decimal(parsed.shapes.amount),
+            earned: new Decimal(parsed.shapes.earned),
+            perSecond: new Decimal(parsed.shapes.perSecond)
+          });
+          setBuildings(parsed.buildings || []);
+          setUpgrades(parsed.upgrades || []);
+        }
+      } catch (error) {
+        console.error('Error loading game:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadGame();
+  }, []);
+
+  // Add this state to track if there's a current game
+  const [hasCurrentGame, setHasCurrentGame] = useState(false);
+
+  // Update useEffect to check for current game
+  useEffect(() => {
+    const hasGame = shapes.earned.toNumber() > 0 || buildings.some(b => b.owned > 0);
+    setHasCurrentGame(hasGame);
+  }, [shapes.earned.toNumber(), buildings]);
+
+  // Add handler for returning to game
+  const handleReturnToGame = () => {
+    setShowMainMenu(false);
+  };
+
+  // Add loading state
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Add loading effect
+  useEffect(() => {
+    const loadGame = async () => {
+      try {
+        const savedState = localStorage.getItem('gameState');
+        if (savedState) {
+          const parsed = JSON.parse(savedState);
+          // Load saved state
+          setShapes({
+            amount: new Decimal(parsed.shapes.amount),
+            earned: new Decimal(parsed.shapes.earned),
+            perSecond: new Decimal(parsed.shapes.perSecond)
+          });
+          setBuildings(parsed.buildings || []);
+          setUpgrades(parsed.upgrades || []);
+          // ... load other state
+        }
+      } catch (error) {
+        console.error('Error loading game:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadGame();
+  }, []);
+
+  // Add loading screen
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-white text-xl">Loading...</div>
+      </div>
+    );
+  }
+
+  const omegaBuilding = buildings.find((b) => b.id === 'omega');
+  const isOmegaUnlocked = omegaBuilding ? omegaBuilding.owned > 0 : false;
+
   return (
-    <div className="min-h-screen bg-gray-900 text-white relative overflow-hidden">
-      {/* Header */}
-      <div className="fixed top-0 left-0 right-0 bg-gray-800/80 backdrop-blur-sm z-50">
-        <div className="container mx-auto px-4 py-2 flex justify-between items-center">
-          <div className="flex gap-4 items-center">
-            <ResourceDisplay
-              resource={shapes}
-              name="Shapes"
-              showEarned
+    <>
+      <MainMenu
+        isOpen={showMainMenu}
+        onNewGame={handleNewGame}
+        onLoadGame={handleLoadGame}
+        onClose={() => setShowMainMenu(false)}
+        onReturnToGame={handleReturnToGame}
+        highScores={highScores}
+        hasCurrentGame={hasCurrentGame}
+      />
+      <div className="background-image" />
+      <div className="game-container text-white relative">
+        {/* Header */}
+        <div className="fixed top-0 left-0 right-0 bg-gray-800/80 backdrop-blur-sm z-50">
+          <div className="container mx-auto px-4 py-2 flex justify-end items-center">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowHelp(true)}
+                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+              >
+                <HelpCircle className="w-6 h-6" />
+              </button>
+              <button
+                onClick={() => setShowOptions(true)}
+                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+              >
+                <Settings className="w-6 h-6" />
+              </button>
+              <button
+                onClick={() => setShowAchievements(true)}
+                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+              >
+                <Trophy className="w-6 h-6" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Main Game Area */}
+        <div className="container mx-auto px-4 pt-32 pb-8">
+          <div className="grid grid-cols-[350px_1fr_350px] gap-8 items-start">
+            {/* Buildings Column */}
+            <div className="space-y-3">
+              <h2 className="text-xl font-bold mb-4">Buildings</h2>
+              <div className="space-y-3 max-h-[80vh] overflow-y-auto pr-2">
+                {buildings
+                  .map(building => (
+                    <Building
+                      key={building.id}
+                      building={building}
+                      canAfford={shapes.amount.gte(calculateBuildingCost(building))}
+                      onClick={() => handleBuyBuilding(building)}
+                      currentShapes={shapes.earned.toNumber()}
+                    />
+                  ))}
+              </div>
+            </div>
+
+            {/* Central Game Area */}
+            <GameCore
+              onShapeClick={handleShapeClick}
+              isShapePressed={isShapePressed}
+              clickPower={calculateClickPower()}
+              stats={stats}
+              shapes={shapes}
+              soundEnabled={soundEnabled}
+              onPrestige={handlePrestige}
+              canPrestige={shapes.earned.gte(1e12)}
+              prestigePoints={Math.max(0, Math.floor(Math.log10(shapes.earned.div(1e12).toNumber())))}
+            />
+
+            {/* Upgrades Column */}
+            <div className="space-y-3">
+              <h2 className="text-xl font-bold mb-4">Upgrades</h2>
+              <div className="space-y-3 max-h-[80vh] overflow-y-auto pr-2">
+                {upgrades
+                  .filter(upgrade => upgrade.unlockAt <= shapes.earned.toNumber())
+                  .map(upgrade => (
+                    <Upgrade
+                      key={upgrade.id}
+                      upgrade={upgrade}
+                      canAfford={shapes.amount.gte(upgrade.currentCost)}
+                      onClick={() => handleBuyUpgrade(upgrade)}
+                    />
+                  ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Modals and Notifications */}
+        <LuckyShape
+          onCollect={handleCollectLuckyShape}
+          hasClover={upgrades.find(u => u.id === 'golden1')?.purchased ?? false}
+          hasDimensionalRifts={upgrades.find(u => u.id === 'golden3')?.purchased ?? false}
+        />
+
+        <HelpModal
+          isOpen={showHelp}
+          onClose={() => setShowHelp(false)}
+        />
+
+        <OptionsModal
+          isOpen={showOptions}
+          onClose={() => setShowOptions(false)}
+          onReset={handleReset}
+          onSave={handleSaveGame}
+          onExitToMenu={handleExitToMenu}
+          soundEnabled={soundEnabled}
+          musicEnabled={musicEnabled}
+          onToggleSound={() => setSoundEnabled(prev => !prev)}
+          onToggleMusic={() => setMusicEnabled(prev => !prev)}
+        />
+
+        <AchievementsPanel
+          isOpen={showAchievements}
+          onClose={() => setShowAchievements(false)}
+          achievements={ACHIEVEMENTS}
+          unlockedAchievements={unlockedAchievements}
+        />
+
+        <PrestigeModal
+          isOpen={showPrestigeModal}
+          onClose={() => setShowPrestigeModal(false)}
+          onPrestige={handleConfirmPrestige}
+          currentMultiplier={prestigeMultiplier}
+          nextMultiplier={prestigeMultiplier * (1 + Math.floor(shapes.earned.div(1e12).log(10)) * 0.1)}
+          omegaUnlocked={isOmegaUnlocked}
+          requiredAmount={new Decimal(1e12)}
+          currentAmount={shapes.earned}
+        />
+
+        {toast && (
+          <Toast
+            message={toast}
+            onClose={() => setToast(null)}
+          />
+        )}
+
+        {achievementQueue.length > 0 && (
+          <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50">
+            <AchievementPopup
+              achievement={achievementQueue[0]}
+              onComplete={() => setAchievementQueue(prev => prev.slice(1))}
             />
           </div>
-          
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handlePrestige}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={Math.floor(Math.log10(shapes.earned / 1e12)) <= 0}
-            >
-              Prestige ({Math.max(0, Math.floor(Math.log10(shapes.earned / 1e12)))} points)
-            </button>
-            <button
-              onClick={() => setShowHelp(true)}
-              className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-            >
-              <HelpCircle className="w-6 h-6" />
-            </button>
-            <button
-              onClick={() => setShowOptions(true)}
-              className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-            >
-              <Settings className="w-6 h-6" />
-            </button>
-            <button
-              onClick={() => setShowAchievements(true)}
-              className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-            >
-              <Trophy className="w-6 h-6" />
-            </button>
-          </div>
-        </div>
+        )}
       </div>
-
-      {/* Main Game Area */}
-      <div className="container mx-auto px-4 pt-24 pb-8">
-        <div className="grid grid-cols-[300px_1fr_300px] gap-8 items-start">
-          {/* Buildings Column */}
-          <div className="space-y-3">
-            <h2 className="text-xl font-bold mb-4">Buildings</h2>
-            <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-2">
-              {buildings
-                .filter(building => building.unlockAt <= shapes.earned)
-                .map(building => (
-                  <Building
-                    key={building.id}
-                    building={building}
-                    canAfford={shapes.amount >= building.basePrice * Math.pow(1.15, building.owned)}
-                    onClick={() => handleBuyBuilding(building)}
-                  />
-                ))}
-            </div>
-          </div>
-
-          {/* Central Area */}
-          <div className="flex flex-col items-center justify-center min-h-[400px]">
-            <button
-              onClick={handleShapeClick}
-              className={`transform transition-all duration-100 ${
-                isShapePressed ? 'scale-95' : 'scale-100 hover:scale-105'
-              }`}
-            >
-              <div className="w-40 h-40 bg-blue-500/20 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transition-shadow">
-                <div className="w-32 h-32 bg-blue-500/30 rounded-lg flex items-center justify-center animate-pulse">
-                  <div className="w-24 h-24 bg-blue-500/40 rounded-md" />
-                </div>
-              </div>
-            </button>
-            
-            {/* Stats display */}
-            <div className="mt-4 space-y-1 text-center text-sm text-blue-300/80">
-              <div>Click Power: {formatNumber(clickPower * prestigeMultiplier)}</div>
-              <div>Total Clicks: {formatNumber(stats.totalClicks)}</div>
-              <div>Time Played: {Math.floor(stats.timePlayed / 60)} minutes</div>
-              <div>Prestige Points: {prestigePoints}</div>
-            </div>
-          </div>
-
-          {/* Upgrades Column */}
-          <div className="space-y-3">
-            <h2 className="text-xl font-bold mb-4">Upgrades</h2>
-            <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-2">
-              {upgrades
-                .filter(upgrade => !upgrade.purchased && upgrade.unlockAt <= shapes.earned)
-                .map(upgrade => (
-                  <Upgrade
-                    key={upgrade.id}
-                    upgrade={upgrade}
-                    canAfford={shapes.amount >= upgrade.price}
-                    onClick={() => handleBuyUpgrade(upgrade)}
-                  />
-                ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Modals and Notifications */}
-      <LuckyShape
-        onCollect={handleCollectLuckyShape}
-        hasClover={upgrades.find(u => u.id === 'golden1')?.purchased ?? false}
-        hasDimensionalRifts={upgrades.find(u => u.id === 'golden3')?.purchased ?? false}
-      />
-
-      <HelpModal
-        isOpen={showHelp}
-        onClose={() => setShowHelp(false)}
-      />
-
-      <OptionsModal
-        isOpen={showOptions}
-        onClose={() => setShowOptions(false)}
-        onReset={handleReset}
-        soundEnabled={soundEnabled}
-        musicEnabled={musicEnabled}
-        onToggleSound={() => setSoundEnabled(prev => !prev)}
-        onToggleMusic={() => setMusicEnabled(prev => !prev)}
-      />
-
-      <AchievementsPanel
-        isOpen={showAchievements}
-        onClose={() => setShowAchievements(false)}
-        achievements={ACHIEVEMENTS}
-        unlockedAchievements={unlockedAchievements}
-      />
-
-      {toast && (
-        <Toast
-          message={toast}
-          onClose={() => setToast(null)}
-        />
-      )}
-
-      {currentAchievement && (
-        <AchievementPopup
-          achievement={currentAchievement}
-          onComplete={() => setCurrentAchievement(null)}
-        />
-      )}
-    </div>
+    </>
   );
 }
 
